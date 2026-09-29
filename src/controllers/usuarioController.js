@@ -2,13 +2,12 @@ const db = require('../config/db');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 
-// 1. REGISTRAR USUARIO (Con validación y encriptación)
+// 1. REGISTRAR USUARIO
 exports.registrarUsuario = async (req, res) => {
     try {
-        // --- NUEVO: Extraemos TODOS los datos, incluyendo los del negocio ---
         const { 
             nombre, apellido, correo, contraseña,
-            tipo_usuario, documento_dueno, nit_empresa, direccion_taller
+            tipo_usuario, documento_dueno, nit_empresa, direccion_taller, avatar_url
         } = req.body;
 
         const [usuariosExistentes] = await db.query('SELECT * FROM USUARIO WHERE correo = ?', [correo]);
@@ -20,18 +19,15 @@ exports.registrarUsuario = async (req, res) => {
         const salt = await bcrypt.genSalt(10);
         const contraseñaEncriptada = await bcrypt.hash(contraseña, salt);
 
-        // --- NUEVO: Lógica del estado ---
-        // Si es taller, su estado inicia en "pendiente". Si es conductor, "aprobado".
         let estado_inicial = 'aprobado';
         if (tipo_usuario === 'taller') {
             estado_inicial = 'pendiente';
         }
 
-        // --- NUEVO: Actualizamos el INSERT para enviar todas las columnas ---
         const [resultado] = await db.query(
             `INSERT INTO USUARIO 
-            (nombre, apellido, correo, contraseña, tipo_usuario, documento_dueno, nit_empresa, direccion_taller, estado) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            (nombre, apellido, correo, contraseña, tipo_usuario, documento_dueno, nit_empresa, direccion_taller, estado, avatar_url) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 nombre, 
                 apellido, 
@@ -41,7 +37,8 @@ exports.registrarUsuario = async (req, res) => {
                 documento_dueno || null, 
                 nit_empresa || null, 
                 direccion_taller || null,
-                estado_inicial
+                estado_inicial,
+                avatar_url || null
             ]
         );
 
@@ -56,7 +53,7 @@ exports.registrarUsuario = async (req, res) => {
     }
 };
 
-// 2. INICIAR SESIÓN (Tu función favorita unificada)
+// 2. INICIAR SESIÓN (Incluye avatar_url en la respuesta)
 exports.iniciarSesion = async (req, res) => {
     try {
         const { correo, contraseña } = req.body;
@@ -87,9 +84,9 @@ exports.iniciarSesion = async (req, res) => {
                 id_usuario: usuario.id_usuario,
                 nombre: usuario.nombre,
                 correo: usuario.correo,
-                // --- NUEVO: Le enviamos a React el tipo y estado para el Dashboard ---
                 tipo_usuario: usuario.tipo_usuario,
-                estado: usuario.estado 
+                estado: usuario.estado,
+                avatar_url: usuario.avatar_url // <-- AHORA SÍ ENVÍA LA FOTO
             }
         });
 
@@ -99,13 +96,12 @@ exports.iniciarSesion = async (req, res) => {
     }
 };
 
-// 3. OBTENER PERFIL (El que te servirá para el futuro)
+// 3. OBTENER PERFIL
 exports.obtenerPerfil = async (req, res) => {
     try {
         const id_usuario = req.usuario.id_usuario; 
-        // --- NUEVO: Agregamos tipo_usuario y estado a la consulta del perfil ---
         const [usuarios] = await db.query(
-            'SELECT id_usuario, nombre, apellido, correo, tipo_usuario, estado, fecha_registro FROM USUARIO WHERE id_usuario = ?',
+            'SELECT id_usuario, nombre, apellido, correo, tipo_usuario, estado, avatar_url, fecha_registro FROM USUARIO WHERE id_usuario = ?',
             [id_usuario]
         );
 
@@ -119,12 +115,11 @@ exports.obtenerPerfil = async (req, res) => {
     }
 };
 
-// 4. OBTENER TODOS LOS USUARIOS (Para sugerencias en el foro)
+// 4. OBTENER TODOS LOS USUARIOS (Trae avatar_url para el listado lateral)
 exports.obtenerTodos = async (req, res) => {
     try {
-        // Solo traemos datos públicos para no exponer contraseñas
         const [usuarios] = await db.query(
-            'SELECT id_usuario, nombre, apellido, correo, tipo_usuario FROM USUARIO'
+            'SELECT id_usuario, nombre, apellido, correo, tipo_usuario, avatar_url FROM USUARIO'
         );
         res.json(usuarios);
     } catch (error) {
