@@ -10,7 +10,7 @@ exports.registrarUsuario = async (req, res) => {
             tipo_usuario, documento_dueno, nit_empresa, direccion_taller, avatar_url
         } = req.body;
 
-        const [usuariosExistentes] = await db.query('SELECT * FROM USUARIO WHERE correo = ?', [correo]);
+        const [usuariosExistentes] = await db.query('SELECT * FROM usuarios WHERE correo = ?', [correo]);
         
         if (usuariosExistentes.length > 0) {
             return res.status(400).json({ mensaje: 'El correo ya está registrado en JTRACK' });
@@ -25,7 +25,7 @@ exports.registrarUsuario = async (req, res) => {
         }
 
         const [resultado] = await db.query(
-            `INSERT INTO USUARIO 
+            `INSERT INTO usuarios 
             (nombre, apellido, correo, contraseña, tipo_usuario, documento_dueno, nit_empresa, direccion_taller, estado, avatar_url) 
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
@@ -53,12 +53,12 @@ exports.registrarUsuario = async (req, res) => {
     }
 };
 
-// 2. INICIAR SESIÓN (Incluye avatar_url en la respuesta)
+// 2. INICIAR SESIÓN
 exports.iniciarSesion = async (req, res) => {
     try {
         const { correo, contraseña } = req.body;
 
-        const [usuarios] = await db.query('SELECT * FROM USUARIO WHERE correo = ?', [correo]);
+        const [usuarios] = await db.query('SELECT * FROM usuarios WHERE correo = ?', [correo]);
         
         if (usuarios.length === 0) {
             return res.status(401).json({ mensaje: 'Correo o contraseña incorrectos' });
@@ -86,7 +86,7 @@ exports.iniciarSesion = async (req, res) => {
                 correo: usuario.correo,
                 tipo_usuario: usuario.tipo_usuario,
                 estado: usuario.estado,
-                avatar_url: usuario.avatar_url // <-- AHORA SÍ ENVÍA LA FOTO
+                avatar_url: usuario.avatar_url
             }
         });
 
@@ -101,7 +101,7 @@ exports.obtenerPerfil = async (req, res) => {
     try {
         const id_usuario = req.usuario.id_usuario; 
         const [usuarios] = await db.query(
-            'SELECT id_usuario, nombre, apellido, correo, tipo_usuario, estado, avatar_url, fecha_registro FROM USUARIO WHERE id_usuario = ?',
+            'SELECT id_usuario, nombre, apellido, correo, tipo_usuario, estado, avatar_url, fecha_registro FROM usuarios WHERE id_usuario = ?',
             [id_usuario]
         );
 
@@ -115,11 +115,11 @@ exports.obtenerPerfil = async (req, res) => {
     }
 };
 
-// 4. OBTENER TODOS LOS USUARIOS (Trae avatar_url para el listado lateral)
+// 4. OBTENER TODOS LOS USUARIOS
 exports.obtenerTodos = async (req, res) => {
     try {
         const [usuarios] = await db.query(
-            'SELECT id_usuario, nombre, apellido, correo, tipo_usuario, avatar_url FROM USUARIO'
+            'SELECT id_usuario, nombre, apellido, correo, tipo_usuario, avatar_url FROM usuarios'
         );
         res.json(usuarios);
     } catch (error) {
