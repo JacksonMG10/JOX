@@ -123,10 +123,10 @@ exports.darLike = async (req, res) => {
         const { postId } = req.body; // React envía 'postId' en vez de 'id_publicacion'
         const usuario_id = req.usuario.id_usuario;
 
-        try {
+          try {
             await db.query(
-                'INSERT INTO reaccion (usuario_id, publicacion_id, tipo) VALUES (?, ?, "like")',
-                [usuario_id, postId]
+                'INSERT INTO reaccion (usuario_id, publicacion_id, tipo) VALUES (?, ?, ?)',
+                [usuario_id, postId, 'like']
             );
         } catch (error) {
             if (error.code === 'ER_DUP_ENTRY') {
