@@ -25,7 +25,7 @@ exports.crearPublicacion = async (req, res) => {
                 0 AS total_likes,
                 0 AS like_usuario
             FROM publicacion p
-            JOIN usuario u ON p.usuario_id = u.id_usuario
+            JOIN usuarios u ON p.usuario_id = u.id_usuario
             WHERE p.id = ?
         `, [idNuevoPost]);
 
@@ -69,7 +69,7 @@ exports.obtenerMuro = async (req, res) => {
                 (SELECT COUNT(*) FROM reaccion r WHERE r.publicacion_id = p.id AND r.tipo = 'like') AS total_likes,
                 EXISTS(SELECT 1 FROM reaccion r2 WHERE r2.publicacion_id = p.id AND r2.usuario_id = ? AND r2.tipo = 'like') AS like_usuario
             FROM publicacion p 
-            JOIN usuario u ON p.usuario_id = u.id_usuario 
+            JOIN usuarios u ON p.usuario_id = u.id_usuario 
             WHERE 1=1
         `;
         const queryParams = [usuario_id];
@@ -95,7 +95,7 @@ exports.obtenerMuro = async (req, res) => {
                 const [comentarios] = await db.query(
                     `SELECT c.texto, c.fecha_creacion AS fecha, CONCAT(u.nombre, ' ', u.apellido) AS usuario_nombre 
                      FROM comentario c 
-                     JOIN usuario u ON c.usuario_id = u.id_usuario 
+                     JOIN usuarios u ON c.usuario_id = u.id_usuario 
                      WHERE c.publicacion_id = ? 
                      ORDER BY c.fecha_creacion ASC`,
                     [pub.id]
@@ -170,7 +170,7 @@ exports.comentarPublicacion = async (req, res) => {
         );
 
         // Obtener nombre del usuario para enviarlo por socket
-        const [[usuario]] = await db.query('SELECT CONCAT(nombre, " ", apellido) AS usuario_nombre FROM usuario WHERE id_usuario = ?', [usuario_id]);
+        const [[usuario]] = await db.query('SELECT CONCAT(nombre, " ", apellido) AS usuario_nombre FROM usuarios WHERE id_usuario = ?', [usuario_id]);
 
         const nuevoComentario = {
             texto: texto,
