@@ -39,4 +39,10 @@ router.delete('/eliminar/:id_publicacion', authMiddleware, publicacionController
 // Editar post (Protegido)
 router.put('/editar/:id_publicacion', authMiddleware, publicacionController.editarPublicacion);
 
+router.get(
+    '/estadisticas',
+    authMiddleware,
+    publicacionController.obtenerEstadisticasUsuario
+);
+
 module.exports = router;
