@@ -71,9 +71,12 @@ exports.iniciarSesion = async (req, res) => {
             return res.status(401).json({ mensaje: 'Correo o contraseña incorrectos' });
         }
 
+        // AQUÍ SE AGREGA LA CLAVE DE RESPALDO:
+        const secretKey = process.env.JWT_SECRET || 'centenrio_seguro_jtrack_2026';
+
         const token = jwt.sign(
             { id_usuario: usuario.id_usuario, nombre: usuario.nombre, tipo_usuario: usuario.tipo_usuario }, 
-            process.env.JWT_SECRET, 
+            secretKey, 
             { expiresIn: '24h' }
         );
 
@@ -95,7 +98,6 @@ exports.iniciarSesion = async (req, res) => {
         res.status(500).json({ mensaje: 'Hubo un error en el servidor' });
     }
 };
-
 // 3. OBTENER PERFIL
 exports.obtenerPerfil = async (req, res) => {
     try {
