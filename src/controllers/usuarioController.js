@@ -101,22 +101,21 @@ exports.iniciarSesion = async (req, res) => {
 // 3. OBTENER PERFIL
 exports.obtenerPerfil = async (req, res) => {
     try {
-        // Soporta req.usuario o req.user por si el middleware usa una convención distinta
         const datosUsuario = req.usuario || req.user;
 
         if (!datosUsuario) {
             return res.status(401).json({ mensaje: 'No autorizado: Información de token no encontrada' });
         }
 
-        // Intenta obtener id_usuario o id segun cómo se decodificó el JWT
         const id_usuario = datosUsuario.id_usuario || datosUsuario.id; 
 
         if (!id_usuario) {
             return res.status(400).json({ mensaje: 'ID de usuario no identificado en el token' });
         }
 
+        // Se quita fecha_registro para evitar fallas por columnas inexistentes
         const [usuarios] = await db.query(
-            'SELECT id_usuario, nombre, apellido, correo, tipo_usuario, estado, avatar_url, fecha_registro FROM usuarios WHERE id_usuario = ?',
+            'SELECT id_usuario, nombre, apellido, correo, tipo_usuario, estado, avatar_url FROM usuarios WHERE id_usuario = ?',
             [id_usuario]
         );
 
@@ -126,8 +125,7 @@ exports.obtenerPerfil = async (req, res) => {
 
         res.json(usuarios[0]);
     } catch (error) {
-        // Esto enviará el log a Render para diagnóstico
-        console.error('Error al obtener el perfil:', error);
+        console.error('Error crítico al obtener el perfil:', error.message);
         res.status(500).json({ mensaje: 'Error al obtener el perfil', error: error.message });
     }
 };
