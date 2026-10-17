@@ -1,39 +1,56 @@
 const db = require('../config/db');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const axios = require('axios'); // Asegúrate de tener axios en el backend
+const https = require('https');
 
-// Función auxiliar para enviar correos vía API HTTP (Resistente a bloqueos de Render)
-const enviarCorreoBrevo = async (correoDestino, nombreUsuario, codigoVerificacion) => {
-    try {
-        await axios.post(
-            'https://api.brevo.com/v3/smtp/email',
-            {
-                sender: { name: "JOX Plataforma", email: process.env.EMAIL_USER || "info.joxapp@gmail.com" },
-                to: [{ email: correoDestino, name: nombreUsuario }],
-                subject: "🔑 Código de Verificación de Cuenta - JOX",
-                htmlContent: `
-                    <div style="font-family: Arial, sans-serif; padding: 20px; background-color: #18181b; color: #ffffff; border-radius: 10px; max-width: 500px; margin: 0 auto;">
-                        <h2 style="color: #fbbf24; text-align: center;">¡Bienvenido a JOX, ${nombreUsuario}!</h2>
-                        <p style="text-align: center; color: #d4d4d8;">Tu código de verificación de 6 dígitos es:</p>
-                        <div style="background: #27272a; padding: 15px; font-size: 32px; font-weight: bold; color: #fbbf24; text-align: center; letter-spacing: 6px; border-radius: 8px; margin: 20px 0; border: 1px solid #3f3f46;">
-                            ${codigoVerificacion}
-                        </div>
-                        <p style="color: #a1a1aa; font-size: 12px; text-align: center;">Si no solicitaste este registro, puedes ignorar este mensaje.</p>
-                    </div>
-                `
-            },
-            {
-                headers: {
-                    'api-key': process.env.BREVO_API_KEY,
-                    'Content-Type': 'application/json'
-                }
+// Función nativa para enviar correo vía API HTTPS de Brevo (resistente a bloqueos de Render)
+const enviarCorreoBrevo = (correoDestino, nombreUsuario, codigoVerificacion) => {
+    const data = JSON.stringify({
+        sender: { name: "JOX Plataforma", email: process.env.EMAIL_USER || "info.joxapp@gmail.com" },
+        to: [{ email: correoDestino, name: nombreUsuario }],
+        subject: "🔑 Código de Verificación de Cuenta - JOX",
+        htmlContent: `
+            <div style="font-family: Arial, sans-serif; padding: 20px; background-color: #18181b; color: #ffffff; border-radius: 10px; max-width: 500px; margin: 0 auto;">
+                <h2 style="color: #fbbf24; text-align: center;">¡Bienvenido a JOX, ${nombreUsuario}!</h2>
+                <p style="text-align: center; color: #d4d4d8;">Tu código de verificación de 6 dígitos es:</p>
+                <div style="background: #27272a; padding: 15px; font-size: 32px; font-weight: bold; color: #fbbf24; text-align: center; letter-spacing: 6px; border-radius: 8px; margin: 20px 0; border: 1px solid #3f3f46;">
+                    ${codigoVerificacion}
+                </div>
+                <p style="color: #a1a1aa; font-size: 12px; text-align: center;">Si no solicitaste este registro, puedes ignorar este mensaje.</p>
+            </div>
+        `
+    });
+
+    const options = {
+        hostname: 'api.brevo.com',
+        port: 443,
+        path: '/v3/smtp/email',
+        method: 'POST',
+        headers: {
+            'api-key': process.env.BREVO_API_KEY,
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(data)
+        }
+    };
+
+    const req = https.request(options, (res) => {
+        let body = '';
+        res.on('data', (chunk) => body += chunk);
+        res.on('end', () => {
+            if (res.statusCode === 201 || res.statusCode === 200) {
+                console.log(`✉️ Correo enviado exitosamente vía API HTTP a ${correoDestino}`);
+            } else {
+                console.error(`⚠️ Error Brevo (${res.statusCode}):`, body);
             }
-        );
-        console.log(`✉️ Correo enviado exitosamente vía API HTTP a ${correoDestino}`);
-    } catch (error) {
-        console.error("⚠️ Error al enviar correo vía API HTTP:", error.response?.data || error.message);
-    }
+        });
+    });
+
+    req.on('error', (e) => {
+        console.error("⚠️ Error de conexión con Brevo:", e.message);
+    });
+
+    req.write(data);
+    req.end();
 };
 
 // 1. REGISTRAR USUARIO
@@ -61,13 +78,21 @@ exports.registrarUsuario = async (req, res) => {
             (nombre, apellido, correo, contraseña, tipo_usuario, documento_dueno, nit_empresa, direccion_taller, estado, avatar_url, codigo_verificacion, verificado) 
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
             [
-                nombre, apellido, correo, contraseñaEncriptada,
-                tipo_usuario || 'comun', documento_dueno || null, nit_empresa || null, 
-                direccion_taller || null, estado_inicial, avatar_url || null, codigoVerificacion
+                nombre, 
+                apellido, 
+                correo, 
+                contraseñaEncriptada,
+                tipo_usuario || 'comun', 
+                documento_dueno || null, 
+                nit_empresa || null, 
+                direccion_taller || null,
+                estado_inicial,
+                avatar_url || null,
+                codigoVerificacion
             ]
         );
 
-        // Envío por HTTP (asíncrono sin bloqueo SMTP)
+        // Disparo asíncrono del correo vía HTTPS
         enviarCorreoBrevo(correo, nombre, codigoVerificacion);
 
         return res.status(201).json({
@@ -168,7 +193,7 @@ exports.iniciarSesion = async (req, res) => {
     }
 };
 
-// OBTENER PERFIL
+// 4. OBTENER PERFIL
 exports.obtenerPerfil = async (req, res) => {
     try {
         const datosUsuario = req.usuario || req.user;
@@ -189,7 +214,7 @@ exports.obtenerPerfil = async (req, res) => {
     }
 };
 
-// OBTENER TODOS
+// 5. OBTENER TODOS LOS USUARIOS
 exports.obtenerTodos = async (req, res) => {
     try {
         const [usuarios] = await db.query('SELECT id_usuario, nombre, apellido, correo, tipo_usuario, avatar_url FROM usuarios');
