@@ -1,8 +1,18 @@
 const db = require('../config/db');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const nodemailer = require('nodemailer');
 
-// 1. REGISTRAR USUARIO
+// Configuración del servicio de correo
+const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS
+    }
+});
+
+// 1. REGISTRAR USUARIO Y ENVIAR CÓDIGO POR CORREO
 exports.registrarUsuario = async (req, res) => {
     try {
         const { 
@@ -13,21 +23,21 @@ exports.registrarUsuario = async (req, res) => {
         const [usuariosExistentes] = await db.query('SELECT * FROM usuarios WHERE correo = ?', [correo]);
         
         if (usuariosExistentes.length > 0) {
-            return res.status(400).json({ mensaje: 'El correo ya está registrado en JTRACK' });
+            return res.status(400).json({ mensaje: 'El correo ya está registrado en JOX' });
         }
 
         const salt = await bcrypt.genSalt(10);
         const contraseñaEncriptada = await bcrypt.hash(contraseña, salt);
 
-        let estado_inicial = 'aprobado';
-        if (tipo_usuario === 'taller') {
-            estado_inicial = 'pendiente';
-        }
+        // Generar código de 6 dígitos
+        const codigoVerificacion = Math.floor(100000 + Math.random() * 900000).toString();
+
+        let estado_inicial = 'sin_verificar';
 
         const [resultado] = await db.query(
             `INSERT INTO usuarios 
-            (nombre, apellido, correo, contraseña, tipo_usuario, documento_dueno, nit_empresa, direccion_taller, estado, avatar_url) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            (nombre, apellido, correo, contraseña, tipo_usuario, documento_dueno, nit_empresa, direccion_taller, estado, avatar_url, codigo_verificacion, verificado) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
             [
                 nombre, 
                 apellido, 
@@ -38,22 +48,75 @@ exports.registrarUsuario = async (req, res) => {
                 nit_empresa || null, 
                 direccion_taller || null,
                 estado_inicial,
-                avatar_url || null
+                avatar_url || null,
+                codigoVerificacion
             ]
         );
 
+        // Enviar correo electrónico con el código
+        const mailOptions = {
+            from: `"JOX Plataforma" <${process.env.EMAIL_USER}>`,
+            to: correo,
+            subject: '🔑 Código de Verificación de Cuenta - JOX',
+            html: `
+                <div style="font-family: Arial, sans-serif; padding: 20px; background-color: #18181b; color: #ffffff; border-radius: 10px;">
+                    <h2 style="color: #fbbf24;">¡Bienvenido a JOX, ${nombre}!</h2>
+                    <p>Tu código de verificación de 6 dígitos para completar el registro es:</p>
+                    <div style="background: #27272a; padding: 15px; font-size: 32px; font-weight: bold; color: #fbbf24; text-align: center; letter-spacing: 5px; border-radius: 8px; margin: 20px 0;">
+                        ${codigoVerificacion}
+                    </div>
+                    <p style="color: #a0a0a0; font-size: 12px;">Si no solicitaste este código, puedes ignorar este mensaje.</p>
+                </div>
+            `
+        };
+
+        await transporter.sendMail(mailOptions);
+
         res.status(201).json({
-            mensaje: '¡Usuario registrado exitosamente con seguridad!',
+            mensaje: 'Código de verificación enviado a tu correo.',
+            correo: correo,
             id_usuario: resultado.insertId
         });
 
     } catch (error) {
         console.error('Error al registrar usuario:', error);
-        res.status(500).json({ mensaje: 'Hubo un error en el servidor' });
+        res.status(500).json({ mensaje: 'Hubo un error en el servidor o en el envío del correo' });
     }
 };
 
-// 2. INICIAR SESIÓN
+// 2. VERIFICAR CÓDIGO DE CORREO
+exports.verificarCodigo = async (req, res) => {
+    try {
+        const { correo, codigo } = req.body;
+
+        const [usuarios] = await db.query('SELECT * FROM usuarios WHERE correo = ?', [correo]);
+
+        if (usuarios.length === 0) {
+            return res.status(404).json({ mensaje: 'Usuario no encontrado' });
+        }
+
+        const usuario = usuarios[0];
+
+        if (usuario.codigo_verificacion !== codigo) {
+            return res.status(400).json({ mensaje: 'El código ingresado es incorrecto' });
+        }
+
+        let nuevoEstado = usuario.tipo_usuario === 'dueno_taller' ? 'pendiente' : 'aprobado';
+
+        await db.query(
+            'UPDATE usuarios SET verificado = 1, estado = ?, codigo_verificacion = NULL WHERE id_usuario = ?',
+            [nuevoEstado, usuario.id_usuario]
+        );
+
+        res.json({ mensaje: '¡Cuenta verificada exitosamente! Ya puedes iniciar sesión.' });
+
+    } catch (error) {
+        console.error('Error al verificar código:', error);
+        res.status(500).json({ mensaje: 'Error al procesar la verificación' });
+    }
+};
+
+// 3. INICIAR SESIÓN (Verifica que la cuenta esté validada)
 exports.iniciarSesion = async (req, res) => {
     try {
         const { correo, contraseña } = req.body;
@@ -65,13 +128,21 @@ exports.iniciarSesion = async (req, res) => {
         }
 
         const usuario = usuarios[0];
+
+        if (usuario.verificado === 0) {
+            return res.status(403).json({ 
+                mensaje: 'Debes verificar tu correo antes de iniciar sesión.',
+                requiereVerificacion: true,
+                correo: usuario.correo
+            });
+        }
+
         const contraseñaValida = await bcrypt.compare(contraseña, usuario.contraseña);
         
         if (!contraseñaValida) {
             return res.status(401).json({ mensaje: 'Correo o contraseña incorrectos' });
         }
 
-        // AQUÍ SE AGREGA LA CLAVE DE RESPALDO:
         const secretKey = process.env.JWT_SECRET || 'centenrio_seguro_jtrack_2026';
 
         const token = jwt.sign(
@@ -98,47 +169,34 @@ exports.iniciarSesion = async (req, res) => {
         res.status(500).json({ mensaje: 'Hubo un error en el servidor' });
     }
 };
-// 3. OBTENER PERFIL
+
+// OBTENER PERFIL
 exports.obtenerPerfil = async (req, res) => {
     try {
         const datosUsuario = req.usuario || req.user;
+        if (!datosUsuario) return res.status(401).json({ mensaje: 'No autorizado' });
 
-        if (!datosUsuario) {
-            return res.status(401).json({ mensaje: 'No autorizado: Información de token no encontrada' });
-        }
+        const id_usuario = datosUsuario.id_usuario || datosUsuario.id;
 
-        const id_usuario = datosUsuario.id_usuario || datosUsuario.id; 
-
-        if (!id_usuario) {
-            return res.status(400).json({ mensaje: 'ID de usuario no identificado en el token' });
-        }
-
-        // Se quita fecha_registro para evitar fallas por columnas inexistentes
         const [usuarios] = await db.query(
             'SELECT id_usuario, nombre, apellido, correo, tipo_usuario, estado, avatar_url FROM usuarios WHERE id_usuario = ?',
             [id_usuario]
         );
 
-        if (usuarios.length === 0) {
-            return res.status(404).json({ mensaje: 'Usuario no encontrado' });
-        }
+        if (usuarios.length === 0) return res.status(404).json({ mensaje: 'Usuario no encontrado' });
 
         res.json(usuarios[0]);
     } catch (error) {
-        console.error('Error crítico al obtener el perfil:', error.message);
         res.status(500).json({ mensaje: 'Error al obtener el perfil', error: error.message });
     }
 };
 
-// 4. OBTENER TODOS LOS USUARIOS
+// OBTENER TODOS LOS USUARIOS
 exports.obtenerTodos = async (req, res) => {
     try {
-        const [usuarios] = await db.query(
-            'SELECT id_usuario, nombre, apellido, correo, tipo_usuario, avatar_url FROM usuarios'
-        );
+        const [usuarios] = await db.query('SELECT id_usuario, nombre, apellido, correo, tipo_usuario, avatar_url FROM usuarios');
         res.json(usuarios);
     } catch (error) {
-        console.error('Error al obtener todos los usuarios:', error);
         res.status(500).json({ mensaje: 'Hubo un error al obtener la lista de usuarios' });
     }
 };
