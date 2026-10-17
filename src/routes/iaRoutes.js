@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { procesarConsultaTaller } = require('./tallerIaService');
+const { procesarConsultaTaller } = require('../services/tallerIaService');
 
 router.post('/consultar', async (req, res) => {
     try {
