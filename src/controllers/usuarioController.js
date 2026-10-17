@@ -3,12 +3,17 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const nodemailer = require('nodemailer');
 
-// Configuración del servicio de correo
+// Configuración optimizada del servicio de correo para producción (Render)
 const transporter = nodemailer.createTransport({
-    service: 'gmail',
+    host: 'smtp.gmail.com',
+    port: 465,
+    secure: true, // Usa SSL obligatorio para puerto 465
     auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS
+    },
+    tls: {
+        rejectUnauthorized: false // Permite conexiones seguras desde servidores en la nube
     }
 });
 
@@ -29,7 +34,7 @@ exports.registrarUsuario = async (req, res) => {
         const salt = await bcrypt.genSalt(10);
         const contraseñaEncriptada = await bcrypt.hash(contraseña, salt);
 
-        // Generar código de 6 dígitos
+        // Generar código único de 6 dígitos
         const codigoVerificacion = Math.floor(100000 + Math.random() * 900000).toString();
 
         let estado_inicial = 'sin_verificar';
@@ -53,23 +58,24 @@ exports.registrarUsuario = async (req, res) => {
             ]
         );
 
-        // Enviar correo electrónico con el código
+        // Opciones y plantilla HTML del correo
         const mailOptions = {
             from: `"JOX Plataforma" <${process.env.EMAIL_USER}>`,
             to: correo,
             subject: '🔑 Código de Verificación de Cuenta - JOX',
             html: `
-                <div style="font-family: Arial, sans-serif; padding: 20px; background-color: #18181b; color: #ffffff; border-radius: 10px;">
-                    <h2 style="color: #fbbf24;">¡Bienvenido a JOX, ${nombre}!</h2>
-                    <p>Tu código de verificación de 6 dígitos para completar el registro es:</p>
-                    <div style="background: #27272a; padding: 15px; font-size: 32px; font-weight: bold; color: #fbbf24; text-align: center; letter-spacing: 5px; border-radius: 8px; margin: 20px 0;">
+                <div style="font-family: Arial, sans-serif; padding: 20px; background-color: #18181b; color: #ffffff; border-radius: 10px; max-width: 500px; margin: 0 auto;">
+                    <h2 style="color: #fbbf24; text-align: center;">¡Bienvenido a JOX, ${nombre}!</h2>
+                    <p style="text-align: center; color: #d4d4d8;">Tu código de verificación de 6 dígitos para activar tu cuenta es:</p>
+                    <div style="background: #27272a; padding: 15px; font-size: 32px; font-weight: bold; color: #fbbf24; text-align: center; letter-spacing: 6px; border-radius: 8px; margin: 20px 0; border: 1px solid #3f3f46;">
                         ${codigoVerificacion}
                     </div>
-                    <p style="color: #a0a0a0; font-size: 12px;">Si no solicitaste este código, puedes ignorar este mensaje.</p>
+                    <p style="color: #a1a1aa; font-size: 12px; text-align: center;">Si no solicitaste este registro, puedes ignorar este mensaje.</p>
                 </div>
             `
         };
 
+        // Enviar el mensaje mediante Nodemailer
         await transporter.sendMail(mailOptions);
 
         res.status(201).json({
@@ -79,7 +85,7 @@ exports.registrarUsuario = async (req, res) => {
         });
 
     } catch (error) {
-        console.error('Error al registrar usuario:', error);
+        console.error('Error al registrar usuario o enviar correo:', error);
         res.status(500).json({ mensaje: 'Hubo un error en el servidor o en el envío del correo' });
     }
 };
@@ -116,7 +122,7 @@ exports.verificarCodigo = async (req, res) => {
     }
 };
 
-// 3. INICIAR SESIÓN (Verifica que la cuenta esté validada)
+// 3. INICIAR SESIÓN (Bloquea acceso si verificado === 0)
 exports.iniciarSesion = async (req, res) => {
     try {
         const { correo, contraseña } = req.body;
@@ -170,7 +176,7 @@ exports.iniciarSesion = async (req, res) => {
     }
 };
 
-// OBTENER PERFIL
+// 4. OBTENER PERFIL
 exports.obtenerPerfil = async (req, res) => {
     try {
         const datosUsuario = req.usuario || req.user;
@@ -191,7 +197,7 @@ exports.obtenerPerfil = async (req, res) => {
     }
 };
 
-// OBTENER TODOS LOS USUARIOS
+// 5. OBTENER TODOS LOS USUARIOS
 exports.obtenerTodos = async (req, res) => {
     try {
         const [usuarios] = await db.query('SELECT id_usuario, nombre, apellido, correo, tipo_usuario, avatar_url FROM usuarios');
