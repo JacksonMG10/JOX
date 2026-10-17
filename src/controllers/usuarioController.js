@@ -1,23 +1,42 @@
 const db = require('../config/db');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const nodemailer = require('nodemailer');
+const axios = require('axios'); // Asegúrate de tener axios en el backend
 
-// Configuración nativa y directa para servicio Gmail
-const transporter = nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 587,
-    secure: false, // Requerido para puerto 587
-    auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS
-    },
-    tls: {
-        rejectUnauthorized: false
+// Función auxiliar para enviar correos vía API HTTP (Resistente a bloqueos de Render)
+const enviarCorreoBrevo = async (correoDestino, nombreUsuario, codigoVerificacion) => {
+    try {
+        await axios.post(
+            'https://api.brevo.com/v3/smtp/email',
+            {
+                sender: { name: "JOX Plataforma", email: process.env.EMAIL_USER || "info.joxapp@gmail.com" },
+                to: [{ email: correoDestino, name: nombreUsuario }],
+                subject: "🔑 Código de Verificación de Cuenta - JOX",
+                htmlContent: `
+                    <div style="font-family: Arial, sans-serif; padding: 20px; background-color: #18181b; color: #ffffff; border-radius: 10px; max-width: 500px; margin: 0 auto;">
+                        <h2 style="color: #fbbf24; text-align: center;">¡Bienvenido a JOX, ${nombreUsuario}!</h2>
+                        <p style="text-align: center; color: #d4d4d8;">Tu código de verificación de 6 dígitos es:</p>
+                        <div style="background: #27272a; padding: 15px; font-size: 32px; font-weight: bold; color: #fbbf24; text-align: center; letter-spacing: 6px; border-radius: 8px; margin: 20px 0; border: 1px solid #3f3f46;">
+                            ${codigoVerificacion}
+                        </div>
+                        <p style="color: #a1a1aa; font-size: 12px; text-align: center;">Si no solicitaste este registro, puedes ignorar este mensaje.</p>
+                    </div>
+                `
+            },
+            {
+                headers: {
+                    'api-key': process.env.BREVO_API_KEY,
+                    'Content-Type': 'application/json'
+                }
+            }
+        );
+        console.log(`✉️ Correo enviado exitosamente vía API HTTP a ${correoDestino}`);
+    } catch (error) {
+        console.error("⚠️ Error al enviar correo vía API HTTP:", error.response?.data || error.message);
     }
-});
+};
 
-// 1. REGISTRAR USUARIO Y ENVIAR CÓDIGO POR CORREO (RÁPIDO)
+// 1. REGISTRAR USUARIO
 exports.registrarUsuario = async (req, res) => {
     try {
         const { 
@@ -25,7 +44,6 @@ exports.registrarUsuario = async (req, res) => {
             tipo_usuario, documento_dueno, nit_empresa, direccion_taller, avatar_url
         } = req.body;
 
-        // Comprobar si el correo ya existe
         const [usuariosExistentes] = await db.query('SELECT * FROM usuarios WHERE correo = ?', [correo]);
         
         if (usuariosExistentes.length > 0) {
@@ -35,9 +53,7 @@ exports.registrarUsuario = async (req, res) => {
         const salt = await bcrypt.genSalt(10);
         const contraseñaEncriptada = await bcrypt.hash(contraseña, salt);
 
-        // Generar código de 6 dígitos
         const codigoVerificacion = Math.floor(100000 + Math.random() * 900000).toString();
-
         let estado_inicial = 'sin_verificar';
 
         const [resultado] = await db.query(
@@ -45,45 +61,15 @@ exports.registrarUsuario = async (req, res) => {
             (nombre, apellido, correo, contraseña, tipo_usuario, documento_dueno, nit_empresa, direccion_taller, estado, avatar_url, codigo_verificacion, verificado) 
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
             [
-                nombre, 
-                apellido, 
-                correo, 
-                contraseñaEncriptada,
-                tipo_usuario || 'comun', 
-                documento_dueno || null, 
-                nit_empresa || null, 
-                direccion_taller || null,
-                estado_inicial,
-                avatar_url || null,
-                codigoVerificacion
+                nombre, apellido, correo, contraseñaEncriptada,
+                tipo_usuario || 'comun', documento_dueno || null, nit_empresa || null, 
+                direccion_taller || null, estado_inicial, avatar_url || null, codigoVerificacion
             ]
         );
 
-        // Configuración de la plantilla HTML del correo
-        const mailOptions = {
-            from: `"JOX Plataforma" <${process.env.EMAIL_USER}>`,
-            to: correo,
-            subject: '🔑 Código de Verificación de Cuenta - JOX',
-            html: `
-                <div style="font-family: Arial, sans-serif; padding: 20px; background-color: #18181b; color: #ffffff; border-radius: 10px; max-width: 500px; margin: 0 auto;">
-                    <h2 style="color: #fbbf24; text-align: center;">¡Bienvenido a JOX, ${nombre}!</h2>
-                    <p style="text-align: center; color: #d4d4d8;">Tu código de verificación de 6 dígitos para activar tu cuenta es:</p>
-                    <div style="background: #27272a; padding: 15px; font-size: 32px; font-weight: bold; color: #fbbf24; text-align: center; letter-spacing: 6px; border-radius: 8px; margin: 20px 0; border: 1px solid #3f3f46;">
-                        ${codigoVerificacion}
-                    </div>
-                    <p style="color: #a1a1aa; font-size: 12px; text-align: center;">Si no solicitaste este registro, puedes ignorar este mensaje.</p>
-                </div>
-            `
-        };
+        // Envío por HTTP (asíncrono sin bloqueo SMTP)
+        enviarCorreoBrevo(correo, nombre, codigoVerificacion);
 
-        // Enviar correo en segundo plano para dar respuesta INSTANTÁNEA al frontend
-        transporter.sendMail(mailOptions).then(() => {
-            console.log(`✉️ Código de verificación enviado exitosamente a ${correo}`);
-        }).catch(err => {
-            console.error("⚠️ Error al enviar el correo en segundo plano:", err);
-        });
-
-        // Responder inmediatamente al usuario para cambiar de pantalla
         return res.status(201).json({
             mensaje: 'Código de verificación enviado a tu correo.',
             correo: correo,
@@ -128,7 +114,7 @@ exports.verificarCodigo = async (req, res) => {
     }
 };
 
-// 3. INICIAR SESIÓN (Bloquea si no ha verificado el correo)
+// 3. INICIAR SESIÓN
 exports.iniciarSesion = async (req, res) => {
     try {
         const { correo, contraseña } = req.body;
@@ -182,7 +168,7 @@ exports.iniciarSesion = async (req, res) => {
     }
 };
 
-// 4. OBTENER PERFIL
+// OBTENER PERFIL
 exports.obtenerPerfil = async (req, res) => {
     try {
         const datosUsuario = req.usuario || req.user;
@@ -203,7 +189,7 @@ exports.obtenerPerfil = async (req, res) => {
     }
 };
 
-// 5. OBTENER TODOS LOS USUARIOS
+// OBTENER TODOS
 exports.obtenerTodos = async (req, res) => {
     try {
         const [usuarios] = await db.query('SELECT id_usuario, nombre, apellido, correo, tipo_usuario, avatar_url FROM usuarios');
