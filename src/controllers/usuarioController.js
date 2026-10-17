@@ -3,21 +3,16 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const nodemailer = require('nodemailer');
 
-// Configuración optimizada del servicio de correo para producción (Render)
+// Configuración nativa y directa para servicio Gmail
 const transporter = nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 465,
-    secure: true, // Usa SSL obligatorio para puerto 465
+    service: 'gmail',
     auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS
-    },
-    tls: {
-        rejectUnauthorized: false // Permite conexiones seguras desde servidores en la nube
     }
 });
 
-// 1. REGISTRAR USUARIO Y ENVIAR CÓDIGO POR CORREO
+// 1. REGISTRAR USUARIO Y ENVIAR CÓDIGO POR CORREO (RÁPIDO)
 exports.registrarUsuario = async (req, res) => {
     try {
         const { 
@@ -25,6 +20,7 @@ exports.registrarUsuario = async (req, res) => {
             tipo_usuario, documento_dueno, nit_empresa, direccion_taller, avatar_url
         } = req.body;
 
+        // Comprobar si el correo ya existe
         const [usuariosExistentes] = await db.query('SELECT * FROM usuarios WHERE correo = ?', [correo]);
         
         if (usuariosExistentes.length > 0) {
@@ -34,7 +30,7 @@ exports.registrarUsuario = async (req, res) => {
         const salt = await bcrypt.genSalt(10);
         const contraseñaEncriptada = await bcrypt.hash(contraseña, salt);
 
-        // Generar código único de 6 dígitos
+        // Generar código de 6 dígitos
         const codigoVerificacion = Math.floor(100000 + Math.random() * 900000).toString();
 
         let estado_inicial = 'sin_verificar';
@@ -58,7 +54,7 @@ exports.registrarUsuario = async (req, res) => {
             ]
         );
 
-        // Opciones y plantilla HTML del correo
+        // Configuración de la plantilla HTML del correo
         const mailOptions = {
             from: `"JOX Plataforma" <${process.env.EMAIL_USER}>`,
             to: correo,
@@ -75,18 +71,23 @@ exports.registrarUsuario = async (req, res) => {
             `
         };
 
-        // Enviar el mensaje mediante Nodemailer
-        await transporter.sendMail(mailOptions);
+        // Enviar correo en segundo plano para dar respuesta INSTANTÁNEA al frontend
+        transporter.sendMail(mailOptions).then(() => {
+            console.log(`✉️ Código de verificación enviado exitosamente a ${correo}`);
+        }).catch(err => {
+            console.error("⚠️ Error al enviar el correo en segundo plano:", err);
+        });
 
-        res.status(201).json({
+        // Responder inmediatamente al usuario para cambiar de pantalla
+        return res.status(201).json({
             mensaje: 'Código de verificación enviado a tu correo.',
             correo: correo,
             id_usuario: resultado.insertId
         });
 
     } catch (error) {
-        console.error('Error al registrar usuario o enviar correo:', error);
-        res.status(500).json({ mensaje: 'Hubo un error en el servidor o en el envío del correo' });
+        console.error('Error al registrar usuario:', error);
+        return res.status(500).json({ mensaje: 'Hubo un error en el servidor al registrar el usuario' });
     }
 };
 
@@ -122,7 +123,7 @@ exports.verificarCodigo = async (req, res) => {
     }
 };
 
-// 3. INICIAR SESIÓN (Bloquea acceso si verificado === 0)
+// 3. INICIAR SESIÓN (Bloquea si no ha verificado el correo)
 exports.iniciarSesion = async (req, res) => {
     try {
         const { correo, contraseña } = req.body;
