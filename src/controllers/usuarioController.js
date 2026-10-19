@@ -303,11 +303,11 @@ exports.actualizarPerfil = async (req, res) => {
         // 1. Validar si el username ya lo está usando otra persona
         if (username && username.trim() !== '') {
             const [existentes] = await db.query(
-                'SELECT id_usuario FROM usuarios WHERE LOWER(username) = LOWER(?) AND id_usuario != ?',
+                'SELECT id_usuario FROM usuarios WHERE username IS NOT NULL AND LOWER(username) = LOWER(?) AND id_usuario != ?',
                 [username.trim(), id_usuario]
             );
 
-            if (existentes.length > 0) {
+            if (existentes && existentes.length > 0) {
                 return res.status(400).json({ 
                     mensaje: 'El nombre de usuario ya está registrado por otra persona. Elige otro.' 
                 });
@@ -320,7 +320,7 @@ exports.actualizarPerfil = async (req, res) => {
             [id_usuario]
         );
 
-        if (usuariosActuales.length === 0) {
+        if (!usuariosActuales || usuariosActuales.length === 0) {
             return res.status(404).json({ mensaje: 'Usuario no encontrado' });
         }
 
