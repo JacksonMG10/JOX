@@ -3,22 +3,13 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const https = require('https');
 
-// Función nativa para enviar correo vía API HTTPS de Brevo (resistente a bloqueos de Render)
-const enviarCorreoBrevo = (correoDestino, nombreUsuario, codigoVerificacion) => {
+// Función para enviar correo vía API HTTPS de Brevo
+const enviarCorreoBrevo = (correoDestino, nombreUsuario, asunto, htmlContenido) => {
     const data = JSON.stringify({
         sender: { name: "JOX Plataforma", email: process.env.EMAIL_USER || "info.joxapp@gmail.com" },
-        to: [{ email: correoDestino, name: nombreUsuario }],
-        subject: "🔑 Código de Verificación de Cuenta - JOX",
-        htmlContent: `
-            <div style="font-family: Arial, sans-serif; padding: 20px; background-color: #18181b; color: #ffffff; border-radius: 10px; max-width: 500px; margin: 0 auto;">
-                <h2 style="color: #fbbf24; text-align: center;">¡Bienvenido a JOX, ${nombreUsuario}!</h2>
-                <p style="text-align: center; color: #d4d4d8;">Tu código de verificación de 6 dígitos es:</p>
-                <div style="background: #27272a; padding: 15px; font-size: 32px; font-weight: bold; color: #fbbf24; text-align: center; letter-spacing: 6px; border-radius: 8px; margin: 20px 0; border: 1px solid #3f3f46;">
-                    ${codigoVerificacion}
-                </div>
-                <p style="color: #a1a1aa; font-size: 12px; text-align: center;">Si no solicitaste este registro, puedes ignorar este mensaje.</p>
-            </div>
-        `
+        to: [{ email: correoDestino, name: nombreUsuario || "Usuario" }],
+        subject: asunto,
+        htmlContent: htmlContenido
     });
 
     const options = {
@@ -38,17 +29,14 @@ const enviarCorreoBrevo = (correoDestino, nombreUsuario, codigoVerificacion) => 
         res.on('data', (chunk) => body += chunk);
         res.on('end', () => {
             if (res.statusCode === 201 || res.statusCode === 200) {
-                console.log(`✉️ Correo enviado exitosamente vía API HTTP a ${correoDestino}`);
+                console.log(`✉️ Correo enviado exitosamente a ${correoDestino}`);
             } else {
                 console.error(`⚠️ Error Brevo (${res.statusCode}):`, body);
             }
         });
     });
 
-    req.on('error', (e) => {
-        console.error("⚠️ Error de conexión con Brevo:", e.message);
-    });
-
+    req.on('error', (e) => console.error("⚠️ Error de conexión con Brevo:", e.message));
     req.write(data);
     req.end();
 };
@@ -92,8 +80,17 @@ exports.registrarUsuario = async (req, res) => {
             ]
         );
 
-        // Disparo asíncrono del correo vía HTTPS
-        enviarCorreoBrevo(correo, nombre, codigoVerificacion);
+        const htmlCorreo = `
+            <div style="font-family: Arial, sans-serif; padding: 20px; background-color: #18181b; color: #ffffff; border-radius: 10px; max-width: 500px; margin: 0 auto;">
+                <h2 style="color: #fbbf24; text-align: center;">¡Bienvenido a JOX, ${nombre}!</h2>
+                <p style="text-align: center; color: #d4d4d8;">Tu código de verificación de 6 dígitos es:</p>
+                <div style="background: #27272a; padding: 15px; font-size: 32px; font-weight: bold; color: #fbbf24; text-align: center; letter-spacing: 6px; border-radius: 8px; margin: 20px 0; border: 1px solid #3f3f46;">
+                    ${codigoVerificacion}
+                </div>
+            </div>
+        `;
+
+        enviarCorreoBrevo(correo, nombre, "🔑 Código de Verificación de Cuenta - JOX", htmlCorreo);
 
         return res.status(201).json({
             mensaje: 'Código de verificación enviado a tu correo.',
@@ -195,7 +192,81 @@ exports.iniciarSesion = async (req, res) => {
     }
 };
 
-// 4. OBTENER PERFIL
+// 4. SOLICITAR RECUPERACIÓN DE CONTRASEÑA (ENVÍA CÓDIGO)
+exports.solicitarRecuperacion = async (req, res) => {
+    try {
+        const { correo } = req.body;
+        if (!correo) return res.status(400).json({ mensaje: 'El correo es obligatorio' });
+
+        const [usuarios] = await db.query('SELECT * FROM usuarios WHERE correo = ?', [correo.trim()]);
+        if (usuarios.length === 0) {
+            return res.status(404).json({ mensaje: 'No existe ninguna cuenta registrada con este correo' });
+        }
+
+        const usuario = usuarios[0];
+        const codigoRecuperacion = Math.floor(100000 + Math.random() * 900000).toString();
+
+        await db.query('UPDATE usuarios SET codigo_verificacion = ? WHERE id_usuario = ?', [
+            codigoRecuperacion,
+            usuario.id_usuario
+        ]);
+
+        const htmlCorreo = `
+            <div style="font-family: Arial, sans-serif; padding: 20px; background-color: #18181b; color: #ffffff; border-radius: 10px; max-width: 500px; margin: 0 auto;">
+                <h2 style="color: #fbbf24; text-align: center;">🔐 Recuperación de Contraseña - JOX</h2>
+                <p style="text-align: center; color: #d4d4d8;">Hola ${usuario.nombre}, recibimos una solicitud para restablecer tu contraseña. Usa este código de 6 dígitos:</p>
+                <div style="background: #27272a; padding: 15px; font-size: 32px; font-weight: bold; color: #fbbf24; text-align: center; letter-spacing: 6px; border-radius: 8px; margin: 20px 0; border: 1px solid #3f3f46;">
+                    ${codigoRecuperacion}
+                </div>
+                <p style="color: #a1a1aa; font-size: 12px; text-align: center;">Si no solicitaste este cambio, puedes ignorar este correo de forma segura.</p>
+            </div>
+        `;
+
+        enviarCorreoBrevo(usuario.correo, usuario.nombre, "🔐 Código de Recuperación de Contraseña - JOX", htmlCorreo);
+
+        res.json({ mensaje: 'Código de recuperación enviado a tu correo registrado.' });
+
+    } catch (error) {
+        console.error('Error al solicitar recuperación:', error);
+        res.status(500).json({ mensaje: 'Error al enviar el código de recuperación' });
+    }
+};
+
+// 5. RESTABLECER CONTRASEÑA
+exports.restablecerContrasena = async (req, res) => {
+    try {
+        const { correo, codigo, nuevaContrasena } = req.body;
+
+        if (!correo || !codigo || !nuevaContrasena) {
+            return res.status(400).json({ mensaje: 'Todos los campos son obligatorios' });
+        }
+
+        const [usuarios] = await db.query('SELECT * FROM usuarios WHERE correo = ?', [correo.trim()]);
+        if (usuarios.length === 0) return res.status(404).json({ mensaje: 'Usuario no encontrado' });
+
+        const usuario = usuarios[0];
+
+        if (!usuario.codigo_verificacion || usuario.codigo_verificacion !== codigo.trim()) {
+            return res.status(400).json({ mensaje: 'El código de recuperación es incorrecto o ha expirado' });
+        }
+
+        const salt = await bcrypt.genSalt(10);
+        const contrasenaEncriptada = await bcrypt.hash(nuevaContrasena, salt);
+
+        await db.query(
+            'UPDATE usuarios SET contraseña = ?, codigo_verificacion = NULL WHERE id_usuario = ?',
+            [contrasenaEncriptada, usuario.id_usuario]
+        );
+
+        res.json({ mensaje: '¡Contraseña actualizada exitosamente! Ya puedes iniciar sesión.' });
+
+    } catch (error) {
+        console.error('Error al restablecer contraseña:', error);
+        res.status(500).json({ mensaje: 'Error al actualizar la contraseña' });
+    }
+};
+
+// 6. OBTENER PERFIL
 exports.obtenerPerfil = async (req, res) => {
     try {
         const datosUsuario = req.usuario || req.user;
@@ -216,7 +287,7 @@ exports.obtenerPerfil = async (req, res) => {
     }
 };
 
-// 5. ACTUALIZAR PERFIL (CON VALIDACIÓN DE USERNAME ÚNICO Y FOTO)
+// 7. ACTUALIZAR PERFIL
 exports.actualizarPerfil = async (req, res) => {
     try {
         const datosUsuario = req.usuario || req.user;
@@ -225,7 +296,6 @@ exports.actualizarPerfil = async (req, res) => {
         const id_usuario = datosUsuario.id_usuario || datosUsuario.id;
         const { username, nombre, apellido } = req.body;
 
-        // 1. Validar si el username ya lo está usando otra persona
         if (username) {
             const [existentes] = await db.query(
                 'SELECT id_usuario FROM usuarios WHERE LOWER(username) = LOWER(?) AND id_usuario != ?',
@@ -239,19 +309,15 @@ exports.actualizarPerfil = async (req, res) => {
             }
         }
 
-        // 2. Obtener datos actuales del usuario
         const [usuariosActuales] = await db.query(
             'SELECT username, nombre, apellido, avatar_url FROM usuarios WHERE id_usuario = ?',
             [id_usuario]
         );
 
-        if (usuariosActuales.length === 0) {
-            return res.status(404).json({ mensaje: 'Usuario no encontrado' });
-        }
+        if (usuariosActuales.length === 0) return res.status(404).json({ mensaje: 'Usuario no encontrado' });
 
         const usuarioActual = usuariosActuales[0];
 
-        // 3. Determinar nuevos valores o mantener los anteriores
         const nuevoUsername = username ? username.trim() : usuarioActual.username;
         const nuevoNombre = nombre ? nombre.trim() : usuarioActual.nombre;
         const nuevoApellido = apellido ? apellido.trim() : usuarioActual.apellido;
@@ -261,13 +327,11 @@ exports.actualizarPerfil = async (req, res) => {
             nuevoAvatarUrl = `uploads/${req.file.filename}`;
         }
 
-        // 4. Guardar cambios en la base de datos
         await db.query(
             'UPDATE usuarios SET username = ?, nombre = ?, apellido = ?, avatar_url = ? WHERE id_usuario = ?',
             [nuevoUsername, nuevoNombre, nuevoApellido, nuevoAvatarUrl, id_usuario]
         );
 
-        // 5. Retornar el usuario actualizado
         const [actualizados] = await db.query(
             'SELECT id_usuario, username, nombre, apellido, correo, tipo_usuario, estado, avatar_url FROM usuarios WHERE id_usuario = ?',
             [id_usuario]
@@ -284,7 +348,7 @@ exports.actualizarPerfil = async (req, res) => {
     }
 };
 
-// 6. OBTENER TODOS LOS USUARIOS
+// 8. OBTENER TODOS LOS USUARIOS
 exports.obtenerTodos = async (req, res) => {
     try {
         const [usuarios] = await db.query('SELECT id_usuario, username, nombre, apellido, correo, tipo_usuario, avatar_url FROM usuarios');

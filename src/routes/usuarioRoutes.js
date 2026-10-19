@@ -27,6 +27,10 @@ router.post('/registro', usuarioController.registrarUsuario);
 router.post('/verificar', usuarioController.verificarCodigo);
 router.post('/login', usuarioController.iniciarSesion);
 
+//recuperacion de contraseña
+router.post('/solicitar-recuperacion', usuarioController.solicitarRecuperacion);
+router.post('/restablecer-contrasena', usuarioController.restablecerContrasena);
+
 // Rutas protegidas de perfil (requieren token JWT)
 router.get('/perfil', authMiddleware, usuarioController.obtenerPerfil);
 router.put('/perfil', authMiddleware, upload.single('avatar'), usuarioController.actualizarPerfil);
