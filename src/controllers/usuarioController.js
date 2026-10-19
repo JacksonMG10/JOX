@@ -179,7 +179,9 @@ exports.iniciarSesion = async (req, res) => {
             token: token,
             usuario: {
                 id_usuario: usuario.id_usuario,
+                username: usuario.username || usuario.nombre,
                 nombre: usuario.nombre,
+                apellido: usuario.apellido,
                 correo: usuario.correo,
                 tipo_usuario: usuario.tipo_usuario,
                 estado: usuario.estado,
@@ -202,7 +204,7 @@ exports.obtenerPerfil = async (req, res) => {
         const id_usuario = datosUsuario.id_usuario || datosUsuario.id;
 
         const [usuarios] = await db.query(
-            'SELECT id_usuario, nombre, apellido, correo, tipo_usuario, estado, avatar_url FROM usuarios WHERE id_usuario = ?',
+            'SELECT id_usuario, username, nombre, apellido, correo, tipo_usuario, estado, avatar_url FROM usuarios WHERE id_usuario = ?',
             [id_usuario]
         );
 
@@ -214,10 +216,78 @@ exports.obtenerPerfil = async (req, res) => {
     }
 };
 
-// 5. OBTENER TODOS LOS USUARIOS
+// 5. ACTUALIZAR PERFIL (CON VALIDACIÓN DE USERNAME ÚNICO Y FOTO)
+exports.actualizarPerfil = async (req, res) => {
+    try {
+        const datosUsuario = req.usuario || req.user;
+        if (!datosUsuario) return res.status(401).json({ mensaje: 'No autorizado' });
+
+        const id_usuario = datosUsuario.id_usuario || datosUsuario.id;
+        const { username, nombre, apellido } = req.body;
+
+        // 1. Validar si el username ya lo está usando otra persona
+        if (username) {
+            const [existentes] = await db.query(
+                'SELECT id_usuario FROM usuarios WHERE LOWER(username) = LOWER(?) AND id_usuario != ?',
+                [username.trim(), id_usuario]
+            );
+
+            if (existentes.length > 0) {
+                return res.status(400).json({ 
+                    mensaje: 'El nombre de usuario ya está registrado por otra persona. Elige otro.' 
+                });
+            }
+        }
+
+        // 2. Obtener datos actuales del usuario
+        const [usuariosActuales] = await db.query(
+            'SELECT username, nombre, apellido, avatar_url FROM usuarios WHERE id_usuario = ?',
+            [id_usuario]
+        );
+
+        if (usuariosActuales.length === 0) {
+            return res.status(404).json({ mensaje: 'Usuario no encontrado' });
+        }
+
+        const usuarioActual = usuariosActuales[0];
+
+        // 3. Determinar nuevos valores o mantener los anteriores
+        const nuevoUsername = username ? username.trim() : usuarioActual.username;
+        const nuevoNombre = nombre ? nombre.trim() : usuarioActual.nombre;
+        const nuevoApellido = apellido ? apellido.trim() : usuarioActual.apellido;
+        let nuevoAvatarUrl = usuarioActual.avatar_url;
+
+        if (req.file) {
+            nuevoAvatarUrl = `uploads/${req.file.filename}`;
+        }
+
+        // 4. Guardar cambios en la base de datos
+        await db.query(
+            'UPDATE usuarios SET username = ?, nombre = ?, apellido = ?, avatar_url = ? WHERE id_usuario = ?',
+            [nuevoUsername, nuevoNombre, nuevoApellido, nuevoAvatarUrl, id_usuario]
+        );
+
+        // 5. Retornar el usuario actualizado
+        const [actualizados] = await db.query(
+            'SELECT id_usuario, username, nombre, apellido, correo, tipo_usuario, estado, avatar_url FROM usuarios WHERE id_usuario = ?',
+            [id_usuario]
+        );
+
+        res.json({
+            mensaje: 'Perfil actualizado con éxito',
+            usuario: actualizados[0]
+        });
+
+    } catch (error) {
+        console.error('Error al actualizar el perfil:', error);
+        res.status(500).json({ mensaje: 'Error interno del servidor al actualizar perfil', error: error.message });
+    }
+};
+
+// 6. OBTENER TODOS LOS USUARIOS
 exports.obtenerTodos = async (req, res) => {
     try {
-        const [usuarios] = await db.query('SELECT id_usuario, nombre, apellido, correo, tipo_usuario, avatar_url FROM usuarios');
+        const [usuarios] = await db.query('SELECT id_usuario, username, nombre, apellido, correo, tipo_usuario, avatar_url FROM usuarios');
         res.json(usuarios);
     } catch (error) {
         res.status(500).json({ mensaje: 'Hubo un error al obtener la lista de usuarios' });
