@@ -2,13 +2,20 @@ const express = require('express');
 const router = express.Router();
 const multer = require('multer');
 const path = require('path');
+const fs = require('fs');
 const usuarioController = require('../controllers/usuarioController');
 const authMiddleware = require('../middlewares/authMiddleware');
+
+// Asegurar que la carpeta 'uploads' exista en el servidor (Render / Local)
+const uploadDir = path.join(__dirname, '../uploads');
+if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+}
 
 // Configuración de multer para almacenar fotos de perfil
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-        cb(null, 'uploads/');
+        cb(null, uploadDir);
     },
     filename: (req, file, cb) => {
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
@@ -27,7 +34,7 @@ router.post('/registro', usuarioController.registrarUsuario);
 router.post('/verificar', usuarioController.verificarCodigo);
 router.post('/login', usuarioController.iniciarSesion);
 
-//recuperacion de contraseña
+// Recuperación de contraseña
 router.post('/solicitar-recuperacion', usuarioController.solicitarRecuperacion);
 router.post('/restablecer-contrasena', usuarioController.restablecerContrasena);
 
