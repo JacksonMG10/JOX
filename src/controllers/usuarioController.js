@@ -291,16 +291,18 @@ exports.obtenerPerfil = async (req, res) => {
     }
 };
 
-// 7. ACTUALIZAR PERFIL (CON VALIDACIÓN DE USERNAME Y FOTO)
+// 7. ACTUALIZAR PERFIL (CON MANEJO DETALLADO DE ERRORES)
 exports.actualizarPerfil = async (req, res) => {
     try {
         const datosUsuario = req.usuario || req.user;
-        if (!datosUsuario) return res.status(401).json({ mensaje: 'No autorizado' });
+        if (!datosUsuario) {
+            return res.status(401).json({ mensaje: 'No autorizado: Token ausente o inválido' });
+        }
 
         const id_usuario = datosUsuario.id_usuario || datosUsuario.id;
         const { username, nombre, apellido } = req.body;
 
-        // 1. Validar si el username ya lo está usando otra persona
+        // 1. Validar nombre de usuario único
         if (username && username.trim() !== '') {
             const [existentes] = await db.query(
                 'SELECT id_usuario FROM usuarios WHERE username IS NOT NULL AND LOWER(username) = LOWER(?) AND id_usuario != ?',
@@ -314,7 +316,7 @@ exports.actualizarPerfil = async (req, res) => {
             }
         }
 
-        // 2. Obtener datos actuales del usuario
+        // 2. Obtener datos actuales
         const [usuariosActuales] = await db.query(
             'SELECT username, nombre, apellido, avatar_url FROM usuarios WHERE id_usuario = ?',
             [id_usuario]
@@ -326,7 +328,7 @@ exports.actualizarPerfil = async (req, res) => {
 
         const usuarioActual = usuariosActuales[0];
 
-        // 3. Determinar nuevos valores o mantener los anteriores
+        // 3. Determinar nuevos valores
         const nuevoUsername = (username && username.trim() !== '') ? username.trim() : usuarioActual.username;
         const nuevoNombre = (nombre && nombre.trim() !== '') ? nombre.trim() : usuarioActual.nombre;
         const nuevoApellido = (apellido && apellido.trim() !== '') ? apellido.trim() : usuarioActual.apellido;
@@ -336,26 +338,30 @@ exports.actualizarPerfil = async (req, res) => {
             nuevoAvatarUrl = `uploads/${req.file.filename}`;
         }
 
-        // 4. Guardar cambios en la base de datos
+        // 4. Actualizar registro en la BD
         await db.query(
             'UPDATE usuarios SET username = ?, nombre = ?, apellido = ?, avatar_url = ? WHERE id_usuario = ?',
             [nuevoUsername, nuevoNombre, nuevoApellido, nuevoAvatarUrl, id_usuario]
         );
 
-        // 5. Retornar el usuario actualizado
+        // 5. Retornar perfil actualizado
         const [actualizados] = await db.query(
             'SELECT id_usuario, username, nombre, apellido, correo, tipo_usuario, estado, avatar_url FROM usuarios WHERE id_usuario = ?',
             [id_usuario]
         );
 
-        res.json({
+        return res.json({
             mensaje: 'Perfil actualizado con éxito',
             usuario: actualizados[0]
         });
 
     } catch (error) {
-        console.error('Error al actualizar el perfil:', error);
-        res.status(500).json({ mensaje: 'Error interno del servidor al actualizar perfil', error: error.message });
+        // Muestra el stacktrace exacto en la consola del servidor (Render Dashboard)
+        console.error('🔥 Error crítico en actualizarPerfil:', error);
+        return res.status(500).json({ 
+            mensaje: 'Error interno al actualizar perfil', 
+            error: error.message 
+        });
     }
 };
 
