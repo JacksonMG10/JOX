@@ -3,7 +3,7 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const https = require('https');
 
-// Función para enviar correo vía API HTTPS de Brevo
+// Función nativa para enviar correo vía API HTTPS de Brevo (resistente a bloqueos de Render)
 const enviarCorreoBrevo = (correoDestino, nombreUsuario, asunto, htmlContenido) => {
     const data = JSON.stringify({
         sender: { name: "JOX Plataforma", email: process.env.EMAIL_USER || "info.joxapp@gmail.com" },
@@ -29,14 +29,17 @@ const enviarCorreoBrevo = (correoDestino, nombreUsuario, asunto, htmlContenido) 
         res.on('data', (chunk) => body += chunk);
         res.on('end', () => {
             if (res.statusCode === 201 || res.statusCode === 200) {
-                console.log(`✉️ Correo enviado exitosamente a ${correoDestino}`);
+                console.log(`✉️ Correo enviado exitosamente vía API HTTP a ${correoDestino}`);
             } else {
                 console.error(`⚠️ Error Brevo (${res.statusCode}):`, body);
             }
         });
     });
 
-    req.on('error', (e) => console.error("⚠️ Error de conexión con Brevo:", e.message));
+    req.on('error', (e) => {
+        console.error("⚠️ Error de conexión con Brevo:", e.message);
+    });
+
     req.write(data);
     req.end();
 };
@@ -87,6 +90,7 @@ exports.registrarUsuario = async (req, res) => {
                 <div style="background: #27272a; padding: 15px; font-size: 32px; font-weight: bold; color: #fbbf24; text-align: center; letter-spacing: 6px; border-radius: 8px; margin: 20px 0; border: 1px solid #3f3f46;">
                     ${codigoVerificacion}
                 </div>
+                <p style="color: #a1a1aa; font-size: 12px; text-align: center;">Si no solicitaste este registro, puedes ignorar este mensaje.</p>
             </div>
         `;
 
@@ -287,7 +291,7 @@ exports.obtenerPerfil = async (req, res) => {
     }
 };
 
-// 7. ACTUALIZAR PERFIL
+// 7. ACTUALIZAR PERFIL (CON VALIDACIÓN DE USERNAME Y FOTO)
 exports.actualizarPerfil = async (req, res) => {
     try {
         const datosUsuario = req.usuario || req.user;
@@ -296,7 +300,8 @@ exports.actualizarPerfil = async (req, res) => {
         const id_usuario = datosUsuario.id_usuario || datosUsuario.id;
         const { username, nombre, apellido } = req.body;
 
-        if (username) {
+        // 1. Validar si el username ya lo está usando otra persona
+        if (username && username.trim() !== '') {
             const [existentes] = await db.query(
                 'SELECT id_usuario FROM usuarios WHERE LOWER(username) = LOWER(?) AND id_usuario != ?',
                 [username.trim(), id_usuario]
@@ -309,29 +314,35 @@ exports.actualizarPerfil = async (req, res) => {
             }
         }
 
+        // 2. Obtener datos actuales del usuario
         const [usuariosActuales] = await db.query(
             'SELECT username, nombre, apellido, avatar_url FROM usuarios WHERE id_usuario = ?',
             [id_usuario]
         );
 
-        if (usuariosActuales.length === 0) return res.status(404).json({ mensaje: 'Usuario no encontrado' });
+        if (usuariosActuales.length === 0) {
+            return res.status(404).json({ mensaje: 'Usuario no encontrado' });
+        }
 
         const usuarioActual = usuariosActuales[0];
 
-        const nuevoUsername = username ? username.trim() : usuarioActual.username;
-        const nuevoNombre = nombre ? nombre.trim() : usuarioActual.nombre;
-        const nuevoApellido = apellido ? apellido.trim() : usuarioActual.apellido;
+        // 3. Determinar nuevos valores o mantener los anteriores
+        const nuevoUsername = (username && username.trim() !== '') ? username.trim() : usuarioActual.username;
+        const nuevoNombre = (nombre && nombre.trim() !== '') ? nombre.trim() : usuarioActual.nombre;
+        const nuevoApellido = (apellido && apellido.trim() !== '') ? apellido.trim() : usuarioActual.apellido;
         let nuevoAvatarUrl = usuarioActual.avatar_url;
 
         if (req.file) {
             nuevoAvatarUrl = `uploads/${req.file.filename}`;
         }
 
+        // 4. Guardar cambios en la base de datos
         await db.query(
             'UPDATE usuarios SET username = ?, nombre = ?, apellido = ?, avatar_url = ? WHERE id_usuario = ?',
             [nuevoUsername, nuevoNombre, nuevoApellido, nuevoAvatarUrl, id_usuario]
         );
 
+        // 5. Retornar el usuario actualizado
         const [actualizados] = await db.query(
             'SELECT id_usuario, username, nombre, apellido, correo, tipo_usuario, estado, avatar_url FROM usuarios WHERE id_usuario = ?',
             [id_usuario]
