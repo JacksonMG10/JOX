@@ -1,32 +1,30 @@
 const express = require('express');
 const router = express.Router();
 const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
+const { CloudinaryStorage } = require('multer-storage-cloudinary');
+const cloudinary = require('cloudinary').v2;
+
 const usuarioController = require('../controllers/usuarioController');
 const authMiddleware = require('../middlewares/authMiddleware');
 
-// Asegurar que la carpeta 'uploads' exista en el servidor (Render / Local)
-const uploadDir = path.join(__dirname, '../uploads');
-if (!fs.existsSync(uploadDir)) {
-    fs.mkdirSync(uploadDir, { recursive: true });
-}
+// Configuración de Cloudinary
+cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET
+});
 
-// Configuración de multer para almacenar fotos de perfil
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        cb(null, uploadDir);
-    },
-    filename: (req, file, cb) => {
-        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-        const ext = path.extname(file.originalname);
-        cb(null, 'avatar-' + uniqueSuffix + ext);
+const storage = new CloudinaryStorage({
+    cloudinary: cloudinary,
+    params: {
+        folder: 'jox_avatares', // Las fotos de perfil se guardarán en esta carpeta dentro de Cloudinary
+        allowed_formats: ['jpg', 'png', 'jpeg', 'webp']
     }
 });
 
 const upload = multer({ 
     storage,
-    limits: { fileSize: 10 * 1024 * 1024 } // Límite de 10MB por imagen
+    limits: { fileSize: 10 * 1024 * 1024 }
 });
 
 // Rutas públicas de autenticación

@@ -291,7 +291,7 @@ exports.obtenerPerfil = async (req, res) => {
     }
 };
 
-// 7. ACTUALIZAR PERFIL (CON MANEJO DETALLADO DE ERRORES)
+// 7. ACTUALIZAR PERFIL (CON SOPORTE DIRECTO DE CLOUDINARY)
 exports.actualizarPerfil = async (req, res) => {
     try {
         const datosUsuario = req.usuario || req.user;
@@ -334,8 +334,9 @@ exports.actualizarPerfil = async (req, res) => {
         const nuevoApellido = (apellido && apellido.trim() !== '') ? apellido.trim() : usuarioActual.apellido;
         let nuevoAvatarUrl = usuarioActual.avatar_url;
 
+        // Si se envió un archivo, se toma directamente la URL HTTPS provista por Cloudinary
         if (req.file) {
-            nuevoAvatarUrl = `uploads/${req.file.filename}`;
+            nuevoAvatarUrl = req.file.path;
         }
 
         // 4. Actualizar registro en la BD
@@ -356,7 +357,6 @@ exports.actualizarPerfil = async (req, res) => {
         });
 
     } catch (error) {
-        // Muestra el stacktrace exacto en la consola del servidor (Render Dashboard)
         console.error('🔥 Error crítico en actualizarPerfil:', error);
         return res.status(500).json({ 
             mensaje: 'Error interno al actualizar perfil', 
