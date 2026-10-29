@@ -27,23 +27,23 @@ const upload = multer({
     limits: { fileSize: 10 * 1024 * 1024 }
 });
 
-// Middleware helper de seguridad para evitar pasar valores undefined a Express
+// Helper de seguridad para middleware
 const verifyAuth = typeof authMiddleware === 'function' ? authMiddleware : (authMiddleware.authMiddleware || authMiddleware.default);
 
 // Rutas públicas de autenticación
-router.post('/registro', usuarioController.registrarUsuario);
-router.post('/verificar', usuarioController.verificarCodigo);
-router.post('/login', usuarioController.iniciarSesion);
+router.post('/registro', (req, res) => usuarioController.registrarUsuario(req, res));
+router.post('/verificar', (req, res) => usuarioController.verificarCodigo(req, res));
+router.post('/login', (req, res) => usuarioController.iniciarSesion(req, res));
 
 // Recuperación de contraseña
-router.post('/solicitar-recuperacion', usuarioController.solicitarRecuperacion);
-router.post('/restablecer-contrasena', usuarioController.restablecerContrasena);
+router.post('/solicitar-recuperacion', (req, res) => usuarioController.solicitarRecuperacion(req, res));
+router.post('/restablecer-contrasena', (req, res) => usuarioController.restablecerContrasena(req, res));
 
 // Rutas protegidas de perfil
-router.get('/perfil', verifyAuth, usuarioController.obtenerPerfil);
-router.put('/perfil', verifyAuth, upload.single('avatar'), usuarioController.actualizarPerfil);
+router.get('/perfil', verifyAuth, (req, res) => usuarioController.obtenerPerfil(req, res));
+router.put('/perfil', verifyAuth, upload.single('avatar'), (req, res) => usuarioController.actualizarPerfil(req, res));
 
 // Obtener lista general de usuarios
-router.get('/', usuarioController.obtenerTodos);
+router.get('/', (req, res) => usuarioController.obtenerTodos(req, res));
 
 module.exports = router;
