@@ -1,175 +1,89 @@
 const db = require('../config/db');
 
 // 1. CREAR PUBLICACIÓN
-
 exports.crearPublicacion = async (req, res) => {
-
     try {
-
         const { contenido, categoria, vehiculo_referencia } = req.body;
-
         const usuario_id = req.usuario.id_usuario;
 
- 
-
         if (!usuario_id) {
-
             return res.status(401).json({
-
                 mensaje: 'Usuario no autenticado'
-
             });
-
         }
-
- 
 
         if (!contenido || !String(contenido).trim()) {
-
             return res.status(400).json({
-
                 mensaje: 'El contenido de la publicación es obligatorio'
-
             });
-
         }
 
- 
-
-        const imagen_url = req.file
-
-            ? `/uploads/${req.file.filename}`
-
-            : null;
-
- 
+        // Cloudinary guarda la URL pública completa HTTPS en req.file.path
+        const imagen_url = req.file ? req.file.path : null;
 
         const etiquetaFinal =
-
             categoria && String(categoria).trim()
-
                 ? String(categoria).trim()
-
                 : 'General';
 
- 
-
         const [resultado] = await db.query(
-
             `INSERT INTO publicacion
-
                 (usuario_id, contenido, etiqueta, vehiculo_referencia, imagen_url)
-
              VALUES (?, ?, ?, ?, ?)`,
-
             [
-
                 usuario_id,
-
                 String(contenido).trim(),
-
                 etiquetaFinal,
-
                 vehiculo_referencia || null,
-
                 imagen_url
-
             ]
-
         );
-
- 
 
         const idNuevoPost = resultado.insertId;
 
- 
-
         const [[nuevoPost]] = await db.query(
-
             `SELECT
-
                 p.id,
-
                 p.usuario_id,
-
                 p.contenido,
-
                 p.vehiculo_referencia,
-
                 p.imagen_url,
-
                 p.fecha_creacion AS fecha,
-
                 p.etiqueta AS categoria,
-
                 CONCAT(u.nombre, ' ', u.apellido) AS usuario_nombre,
-
                 0 AS total_likes,
-
                 0 AS like_usuario
-
              FROM publicacion p
-
              JOIN usuarios u ON p.usuario_id = u.id_usuario
-
              WHERE p.id = ?`,
-
             [idNuevoPost]
-
         );
 
- 
-
         if (!nuevoPost) {
-
             return res.status(500).json({
-
                 mensaje: 'La publicación fue creada pero no pudo recuperarse'
-
             });
-
         }
-
- 
 
         nuevoPost.comentarios = [];
-
         nuevoPost.like_usuario = false;
 
- 
-
         if (req.io) {
-
             req.io.emit('nueva_publicacion', nuevoPost);
-
         }
 
- 
-
         return res.status(201).json({
-
             mensaje: '¡Publicación compartida con éxito!',
-
             post: nuevoPost
-
         });
-
- 
 
     } catch (error) {
-
         console.error('Error en crearPublicacion:', error);
-
         return res.status(500).json({
-
             mensaje: 'Error al crear la publicación'
-
         });
-
     }
-
 };
-
 
 // 2. OBTENER MURO SOCIAL
 

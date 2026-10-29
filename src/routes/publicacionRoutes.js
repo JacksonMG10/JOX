@@ -1,20 +1,27 @@
 const express = require('express');
 const router = express.Router();
 const multer = require('multer');
-const path = require('path');
+const { CloudinaryStorage } = require('multer-storage-cloudinary');
+const cloudinary = require('cloudinary').v2;
 
 const publicacionController = require('../controllers/publicacionController');
 const authMiddleware = require('../middlewares/authMiddleware');
 
-// --- CONFIGURACIÓN DE MULTER (Para recibir imágenes) ---
-const storage = multer.diskStorage({
-    destination: function (req, file, cb) {
-        cb(null, 'uploads/') // Asegúrate de que la carpeta 'uploads' exista en tu backend
-    },
-    filename: function (req, file, cb) {
-        cb(null, Date.now() + '-' + Math.round(Math.random() * 1E9) + path.extname(file.originalname))
+// --- CONFIGURACIÓN DE CLOUDINARY ---
+cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET
+});
+
+const storage = new CloudinaryStorage({
+    cloudinary: cloudinary,
+    params: {
+        folder: 'jox_publicaciones', // Nombre de la carpeta en tu panel de Cloudinary
+        allowed_formats: ['jpg', 'png', 'jpeg', 'webp']
     }
 });
+
 const upload = multer({ storage: storage });
 
 // ==========================================
@@ -27,7 +34,7 @@ router.post('/crear', authMiddleware, upload.single('imagen'), publicacionContro
 // Ver muro (Protegido: solo usuarios logueados pueden ver el foro)
 router.get('/muro', authMiddleware, publicacionController.obtenerMuro);
 
-// Dar Like o Quitar Like (Protegido - ¡NUEVA RUTA!)
+// Dar Like o Quitar Like (Protegido)
 router.post('/like', authMiddleware, publicacionController.darLike);
 
 // Comentar (Protegido)
