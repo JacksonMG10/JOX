@@ -17,7 +17,7 @@ cloudinary.config({
 const storage = new CloudinaryStorage({
     cloudinary: cloudinary,
     params: {
-        folder: 'jox_avatares', // Las fotos de perfil se guardarán en esta carpeta dentro de Cloudinary
+        folder: 'jox_avatares',
         allowed_formats: ['jpg', 'png', 'jpeg', 'webp']
     }
 });
@@ -26,6 +26,9 @@ const upload = multer({
     storage,
     limits: { fileSize: 10 * 1024 * 1024 }
 });
+
+// Middleware helper de seguridad para evitar pasar valores undefined a Express
+const verifyAuth = typeof authMiddleware === 'function' ? authMiddleware : (authMiddleware.authMiddleware || authMiddleware.default);
 
 // Rutas públicas de autenticación
 router.post('/registro', usuarioController.registrarUsuario);
@@ -36,9 +39,9 @@ router.post('/login', usuarioController.iniciarSesion);
 router.post('/solicitar-recuperacion', usuarioController.solicitarRecuperacion);
 router.post('/restablecer-contrasena', usuarioController.restablecerContrasena);
 
-// Rutas protegidas de perfil (requieren token JWT)
-router.get('/perfil', authMiddleware, usuarioController.obtenerPerfil);
-router.put('/perfil', authMiddleware, upload.single('avatar'), usuarioController.actualizarPerfil);
+// Rutas protegidas de perfil
+router.get('/perfil', verifyAuth, usuarioController.obtenerPerfil);
+router.put('/perfil', verifyAuth, upload.single('avatar'), usuarioController.actualizarPerfil);
 
 // Obtener lista general de usuarios
 router.get('/', usuarioController.obtenerTodos);
